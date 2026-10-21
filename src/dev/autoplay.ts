@@ -39,7 +39,7 @@ export function findSpot(
 }
 
 /** Lay a belt from building `from` (output side) into building `to`. Returns the number of belts placed or -1. */
-export function route(w: World, fromId: number, toId: number, opts: { placed?: number[] } = {}): number {
+export function route(w: World, fromId: number, toId: number, opts: { placed?: number[]; dry?: { x: number; y: number; dir: number }[] } = {}): number {
   const from = w.entities.get(fromId)!, to = w.entities.get(toId)!;
   const free = (x: number, y: number) => w.inBounds(x, y) && !w.tileEnt[w.idx(x, y)] && w.heightAt(x, y) >= 0;
   const key = (x: number, y: number) => y * w.W + x;
@@ -134,6 +134,10 @@ export function route(w: World, fromId: number, toId: number, opts: { placed?: n
     if (Math.abs(w.heightAt(s.x, s.y) - w.heightAt(from.x, from.y)) > 1) continue;
     const nx = s.x + DX[s.d], ny = s.y + DY[s.d];
     if (w.entAt(nx, ny)?.id === toId) {
+      if (opts.dry) {
+        opts.dry.push({ x: s.x, y: s.y, dir: s.d });
+        return 1;
+      }
       const r = w.place('belt', s.x, s.y, s.d);
       if (typeof r !== 'string') opts.placed?.push(r.id);
       return 1;
@@ -218,6 +222,10 @@ export function route(w: World, fromId: number, toId: number, opts: { placed?: n
     for (let d = 0; d < 4; d++) if (p.x + DX[d] === q.x && p.y + DY[d] === q.y) return d;
     return lastDir;
   });
+  if (opts.dry) {
+    opts.dry.push(...pts.map((p, i) => ({ ...p, dir: dirs[i] })));
+    return pts.length;
+  }
   const { ids } = w.placeBeltSteps(w.planBelt(pts.map((p, i) => ({ ...p, dir: dirs[i] }))));
   opts.placed?.push(...ids);
   return ids.length;

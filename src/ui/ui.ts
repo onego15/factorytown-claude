@@ -467,33 +467,49 @@ export class UI {
       <button class="btn close" id="i-close">${SVG.close}</button></div>${body}${actions ? `<div class="actions">${actions}</div>` : ''}`;
     if (el.dataset.h === html) return;
     el.dataset.h = html;
-    el.innerHTML = html;
-    $('#i-close', el).onclick = () => {
+    // patch the body and the action row separately so a button is never swapped out mid-click
+    const parts = html.split('<div class="actions">');
+    const bodyHtml = parts[0], actHtml = parts[1] ? '<div class="actions">' + parts[1] : '';
+    let bodyEl = el.querySelector<HTMLElement>(':scope > .ibody');
+    let actEl = el.querySelector<HTMLElement>(':scope > .iact');
+    if (!bodyEl || !actEl) {
+      el.innerHTML = '<div class="ibody"></div><div class="iact"></div>';
+      bodyEl = el.querySelector<HTMLElement>(':scope > .ibody')!;
+      actEl = el.querySelector<HTMLElement>(':scope > .iact')!;
+      el.onclick = (ev) => this.inspectorAction((ev.target as HTMLElement).closest('button')?.id ?? '');
+    }
+    if (bodyEl.dataset.h !== bodyHtml) {
+      bodyEl.dataset.h = bodyHtml;
+      bodyEl.innerHTML = bodyHtml;
+    }
+    if (actEl.dataset.h !== actHtml) {
+      actEl.dataset.h = actHtml;
+      actEl.innerHTML = actHtml;
+    }
+  }
+
+  private inspectorAction(id: string) {
+    const w = this.g.world;
+    const e = this.inspectorId !== null ? w.entities.get(this.inspectorId) : undefined;
+    if (!e) return;
+    const d = BUILDINGS[e.type];
+    if (id === 'i-close') {
       audio.play('click');
       this.g.select(null);
-    };
-    const up = el.querySelector<HTMLElement>('#i-up');
-    if (up)
-      up.onclick = () => {
-        if (w.upgrade(e.id)) {
-          audio.play('upgrade');
-          this.toast(`${d.name}を Lv${e.level} に改良しました`);
-        } else audio.play('error');
-      };
-    const rot = el.querySelector<HTMLElement>('#i-rot');
-    if (rot)
-      rot.onclick = () => {
-        w.rotateBelt(e.id);
-        audio.play('rotate');
-      };
-    const del = el.querySelector<HTMLElement>('#i-del');
-    if (del)
-      del.onclick = () => {
-        if (w.remove(e.id)) {
-          audio.play('remove');
-          this.g.select(null);
-        }
-      };
+    } else if (id === 'i-up') {
+      if (w.upgrade(e.id)) {
+        audio.play('upgrade');
+        this.toast(`${d.name}を Lv${e.level} に改良しました`);
+      } else audio.play('error');
+    } else if (id === 'i-rot') {
+      w.rotateBelt(e.id);
+      audio.play('rotate');
+    } else if (id === 'i-del') {
+      if (w.remove(e.id)) {
+        audio.play('remove');
+        this.g.select(null);
+      }
+    }
   }
 
   // ---------------------------------------------------------------- tooltip
@@ -718,7 +734,7 @@ export class UI {
       <div class="hint" style="font-size:13px">
         資源を生産する建物から<b>外向き</b>にベルトを敷くと、生産物がベルトに流れ出します。ベルトを加工設備や町役場に<b>向けて</b>つなぐと、資源が運び込まれます。
         町役場・市場の配達範囲にある住宅には、そこに貯まった物資が自動で届けられ、住民が増えて税収が生まれます。
-        研究で新しい設備を解放し、建物を改良して生産ラインを効率化しながら、人口100人の「都市」を目指しましょう。
+        研究で新しい設備を解放し、建物を改良して生産ラインを効率化しながら、人口150人の「都市」を目指しましょう。
       </div>`;
     $('#m-menu').classList.add('show');
     $('#mm-x', el).onclick = () => this.closeModals();
