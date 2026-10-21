@@ -1,0 +1,18 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const page = await browser.newPage({ viewport: { width: 1280, height: 760 } });
+const logs = []; page.on('console', (m) => logs.push(m.text())); page.on('pageerror', (e) => logs.push('ERR ' + e.message));
+await page.goto('http://127.0.0.1:5173/'); await page.waitForTimeout(2500);
+await page.click('#t-new'); await page.waitForTimeout(1500);
+const spot = await page.evaluate(() => __gv.dev.findSpot(game.world, 'lumber', __gv.dev.hallCenter(game.world), { minEff: 0.9 }));
+await page.evaluate((s) => { const w = game.world; game.scene.rig.goal.set(s.x + 2 - w.W / 2, 0.5, s.y + 2 - w.H / 2); }, spot);
+await page.waitForTimeout(1500);
+await page.click('.tool[data-b="lumber"]');
+const p = await page.evaluate(([x, y]) => __gv.tileToScreen(x, y), [spot.x, spot.y]);
+await page.evaluate(() => { document.addEventListener('pointerdown', (e) => console.log('pd target', e.target.id || e.target.className, e.clientX, e.clientY), true); });
+await page.mouse.move(p.x, p.y); await page.waitForTimeout(300);
+console.log('tile under', JSON.stringify(await page.evaluate(([x, y]) => game.scene.pickTile(x, y), [p.x, p.y])), JSON.stringify(spot), JSON.stringify(p));
+await page.mouse.click(p.x, p.y); await page.waitForTimeout(300);
+console.log(await page.evaluate(() => [...game.world.entities.values()].map(e => e.type).join(',')));
+console.log(logs.join('\n'));
+await browser.close();
