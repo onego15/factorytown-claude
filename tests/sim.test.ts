@@ -200,6 +200,30 @@ describe('logistics and production', () => {
   });
 });
 
+describe('belt starts beside a producer', () => {
+  it('a belt laid along the side of a building curves out and receives its output', () => {
+    const w = flatWorld();
+    trees(w, 2, 2, 8, 8);
+    place(w, 'lumber', 4, 9); // x4-5, y9-10
+    belt(w, 6, 9, 1, 4); // starts east of the camp, runs south (parallel to its side)
+    run(w, 20);
+    expect(w.entAt(6, 9)!.shape).toBe(2); // facing south, the camp (west) is on its right
+    expect(itemsOnBelts(w)).toBeGreaterThan(2);
+  });
+  it('a passing belt line does not pick up output from buildings beside it', () => {
+    const w = flatWorld();
+    trees(w, 2, 2, 12, 8);
+    trees(w, 10, 9, 12, 14);
+    place(w, 'lumber', 4, 9); // camp A
+    place(w, 'lumber', 8, 11); // camp B x8-9, y11-12
+    belt(w, 6, 9, 0, 1); // A → east
+    belt(w, 7, 9, 1, 6); // down along x=7, passes west of camp B
+    run(w, 30);
+    const b = [...w.entities.values()].find((e) => e.type === 'lumber' && e.x === 8)!;
+    expect(w.outputsOf(b.id).length).toBe(0);
+  });
+});
+
 describe('town', () => {
   it('houses take goods from the hall, pay taxes and grow', () => {
     const w = flatWorld();

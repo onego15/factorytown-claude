@@ -67,7 +67,8 @@ export type GameEvent =
   | { t: 'houseTier'; id: number; tier: number; up: boolean }
   | { t: 'research'; id: ResearchId }
   | { t: 'milestone'; index: number }
-  | { t: 'upgraded'; id: number };
+  | { t: 'upgraded'; id: number }
+  | { t: 'quest'; id: string; reward: number };
 
 export interface PlaceCheck {
   ok: boolean;
@@ -94,6 +95,10 @@ export class World {
   activeResearch: ResearchId | null = null;
   researchProgress = 0;
   milestone = 0;
+  /** items accepted into storage buildings, ever (for objectives) */
+  received: ItemBag = {};
+  soldTotal = 0;
+  questsDone = new Set<string>();
   events: GameEvent[] = [];
   topoDirty = true;
   hallId = 0;
@@ -441,7 +446,10 @@ export class World {
       }
       const sideFeeds = (sd: number) => {
         const s = this.entAt(e.x + DX[sd], e.y + DY[sd]);
-        return !!s && s.type === 'belt' && s.dir === opposite(sd) && Math.abs(this.heightAt(s.x, s.y) - hb) <= 1;
+        if (!s) return false;
+        // a belt that starts beside a producer curves out of it and receives its output
+        if (s.type !== 'belt') return this.isOutputter(s);
+        return s.dir === opposite(sd) && Math.abs(this.heightAt(s.x, s.y) - hb) <= 1;
       };
       const l = sideFeeds(leftOf(d)), r = sideFeeds(rightOf(d));
       e.shape = !backFeeds && l !== r ? (l ? 1 : 2) : 0;
@@ -463,8 +471,12 @@ export class World {
       const visit = (x: number, y: number) => {
         const b = this.entAt(x, y);
         if (!b || b.type !== 'belt') return;
-        // belt must point away from the building
+        // belt must point away from the building, or start beside it (curving out of it)
         if (this.contains(e, b.x - DX[b.dir], b.y - DY[b.dir])) list.push(b.id);
+        else if (b.shape) {
+          const sd = b.shape === 1 ? leftOf(b.dir) : rightOf(b.dir);
+          if (this.contains(e, b.x + DX[sd], b.y + DY[sd])) list.push(b.id);
+        }
       };
       for (let x = e.x; x < e.x + e.w; x++) {
         visit(x, e.y - 1);
@@ -664,6 +676,7 @@ export class World {
     if (Math.abs(this.heightAt(tx, ty) - this.heightAt(from.x, from.y)) > 1) return false;
     if (!this.accepts(t, item.item)) return false;
     t.inv[item.item] = (t.inv[item.item] ?? 0) + 1;
+    if (this.isStorage(t)) this.received[item.item] = (this.received[item.item] ?? 0) + 1;
     return true;
   }
 
@@ -775,6 +788,7 @@ export class World {
             e.inv[item]! -= 1;
             const v = ITEMS[item].value;
             this.earn(v);
+            this.soldTotal += v;
             this.addStat(this.statCons, item, 1);
             e.cycles.push(this.time);
             this.events.push({ t: 'sold', id: e.id, item, coins: v });
@@ -972,6 +986,7 @@ export class World {
       v: 1, seed: this.terrain.seed, time: this.time, coins: this.coins, nextId: this.nextId,
       research: [...this.research], activeResearch: this.activeResearch, researchProgress: this.researchProgress,
       milestone: this.milestone, hallId: this.hallId, trees, heights, ground, ents,
+      received: this.received, soldTotal: this.soldTotal, questsDone: [...this.questsDone],
     });
   }
 
@@ -986,6 +1001,9 @@ export class World {
     w.researchProgress = d.researchProgress;
     w.milestone = d.milestone;
     w.hallId = d.hallId;
+    w.received = d.received ?? {};
+    w.soldTotal = d.soldTotal ?? 0;
+    w.questsDone = new Set(d.questsDone ?? []);
     for (let i = 0; i < d.trees.length; i++) w.terrain.tree[i] = +d.trees[i];
     if (d.heights) for (let i = 0; i < d.heights.length; i++) w.terrain.height[i] = +d.heights[i] - 1;
     if (d.ground) for (let i = 0; i < d.ground.length; i++) w.terrain.ground[i] = +d.ground[i];
