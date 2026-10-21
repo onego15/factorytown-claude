@@ -39,9 +39,10 @@ export function findSpot(
 }
 
 /** Lay a belt from building `from` (output side) into building `to`. Returns the number of belts placed or -1. */
-export function route(w: World, fromId: number, toId: number, opts: { placed?: number[]; dry?: { x: number; y: number; dir: number }[] } = {}): number {
+export function route(w: World, fromId: number, toId: number, opts: { placed?: number[]; dry?: { x: number; y: number; dir: number }[]; blocked?: Set<number> } = {}): number {
+  const blocked = opts.blocked ?? new Set<number>();
   const from = w.entities.get(fromId)!, to = w.entities.get(toId)!;
-  const free = (x: number, y: number) => w.inBounds(x, y) && !w.tileEnt[w.idx(x, y)] && w.heightAt(x, y) >= 0;
+  const free = (x: number, y: number) => w.inBounds(x, y) && !w.tileEnt[w.idx(x, y)] && w.heightAt(x, y) >= 0 && !blocked.has(y * w.W + x);
   const key = (x: number, y: number) => y * w.W + x;
   const perim = (e: Entity) => {
     const out: { x: number; y: number; d: number }[] = []; // d: direction pointing away from e
@@ -75,7 +76,11 @@ export function route(w: World, fromId: number, toId: number, opts: { placed?: n
     for (let i = 0; i < 300 && cur && cur.type === 'belt'; i++) cur = w.entAt(cur.x + DX[cur.dir], cur.y + DY[cur.dir]);
     return cur?.id === toId;
   };
+  // merging into another line is only safe when the target takes everything (a mixed line into a
+  // crafter jams as soon as one input is full)
+  const takesAll = ['hall', 'storage', 'trade'].includes(BUILDINGS[to.type].kind);
   for (const b of w.entities.values()) {
+    if (!takesAll) break;
     if (b.type !== 'belt' || !leadsTo(b)) continue;
     for (let d = 0; d < 4; d++) {
       if (d === b.dir) continue; // never in front of it
@@ -164,6 +169,9 @@ export function route(w: World, fromId: number, toId: number, opts: { placed?: n
     }
     for (let d = 0; d < 4; d++) {
       if (d === opposite(hd)) continue;
+      // a belt pointing away from another producer would pick up that producer's output
+      const back = w.entAt(x - DX[d], y - DY[d]);
+      if (back && back.id !== fromId && w.isOutputter(back)) continue;
       const nx = x + DX[d], ny = y + DY[d];
       if (!free(nx, ny)) continue;
       if (Math.abs(w.heightAt(nx, ny) - w.heightAt(x, y)) > 1) continue;
@@ -212,6 +220,14 @@ export function route(w: World, fromId: number, toId: number, opts: { placed?: n
     st = prev[st];
   }
   path.reverse();
+  // a path may revisit a tile it already crossed with a bridge: forbid those tiles and search again
+  const seen = new Set<number>();
+  const dup = path.filter((k) => (seen.has(k) ? true : (seen.add(k), false)));
+  if (dup.length) {
+    if (blocked.size > 40) return -1;
+    for (const k of dup) blocked.add(k);
+    return route(w, fromId, toId, { ...opts, blocked });
+  }
   const pts = path.map((k) => ({ x: k % w.W, y: Math.floor(k / w.W) }));
   // last tile points into the target (or the belt it merges into)
   const lp = pts[pts.length - 1];
@@ -235,7 +251,7 @@ export function route(w: World, fromId: number, toId: number, opts: { placed?: n
  * Branch an existing output line of `from` into `to`: walk along the line, swap one belt for a
  * splitter and lay a belt from it. Falls back to this when a direct route is impossible.
  */
-export function tap(w: World, fromId: number, toId: number, opts: { placed?: number[] } = {}): number {
+export function tap(w: World, fromId: number, toId: number, opts: { placed?: number[]; undo?: (() => void)[] } = {}): number {
   const direct = route(w, fromId, toId, opts);
   if (direct > 0) return direct;
   if (!w.research.has('logistics')) return -1;
@@ -256,6 +272,7 @@ export function tap(w: World, fromId: number, toId: number, opts: { placed?: num
         const n = route(w, sp.id, toId, opts);
         if (n > 0) {
           opts.placed?.push(sp.id);
+          opts.undo?.push(() => w.place('belt', x, y, dir)); // put the original belt back after the splitter is removed
           return n + 1;
         }
         w.remove(sp.id);

@@ -128,7 +128,7 @@ export class World {
   private coverage = new Map<number, number[]>(); // house id -> distributor ids by distance
   private tmp: V3 = { x: 0, y: 0, z: 0 };
   private tickAcc = 0;
-  private tickNo = 0;
+  tickNo = 0;
 
   constructor(seed = 20261021, opts: { empty?: boolean } = {}) {
     this.terrain = generateTerrain(seed);
@@ -697,6 +697,22 @@ export class World {
       this.lineEnds.set(beltId, id);
     }
     return id ? this.entities.get(id) : undefined;
+  }
+
+  /** A belt feeding this building whose front item cannot go in (e.g. a full input blocks a mixed line) */
+  jamOf(e: Entity): { item: ItemId; behind?: ItemId } | null {
+    for (let y = e.y - 1; y <= e.y + e.h; y++)
+      for (let x = e.x - 1; x <= e.x + e.w; x++) {
+        const b = this.entAt(x, y);
+        if (!b || b.type !== 'belt' || !b.items!.length) continue;
+        const l = b.len ?? 1;
+        if (this.entAt(b.x + DX[b.dir] * l, b.y + DY[b.dir] * l) !== e) continue;
+        const front = b.items![0];
+        if (front.pos < 0.99 || this.accepts(e, front.item)) continue;
+        const behind = b.items!.find((i) => i.item !== front.item)?.item;
+        return { item: front.item, behind };
+      }
+    return null;
   }
 
   /** Whether a building ever takes this item (ignores how full it is) */

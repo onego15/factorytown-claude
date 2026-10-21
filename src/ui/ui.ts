@@ -404,6 +404,11 @@ export class UI {
       body += sec('在庫（入力 / 出力）', `<div class="buffers">${bufs.join('')}</div>`);
       const outsN = w.outputsOf(e.id).length;
       if (outsN === 0) body += `<div class="sec hint" style="color:var(--red)">⚠ 出力先のベルトがありません。建物から外向きにベルトを敷きましょう。</div>`;
+      const jam = d.kind === 'crafter' ? w.jamOf(e) : null;
+      if (jam && !w.wants(e, jam.item))
+        body += `<div class="sec warnbox">${itemImg(jam.item, 'ico sm')}${ITEMS[jam.item].name}はこの建物では使えないため、ベルトが止まっています。</div>`;
+      else if (jam && jam.behind)
+        body += `<div class="sec warnbox">${itemImg(jam.item, 'ico sm')}${ITEMS[jam.item].name}が満杯でベルトが詰まり、後ろの${ITEMS[jam.behind].name}が届きません。材料ごとに別のベルトで搬入しましょう。</div>`;
       else if (e.status === 'noInput') body += `<div class="sec hint">材料をベルトでこの建物に向けて運び込みましょう。</div>`;
       else if (e.status === 'outputFull') body += `<div class="sec hint">運び出したベルトの先が詰まっています。行き先（町役場・倉庫・交易所など）につながっているか確認しましょう。</div>`;
     } else if (e.type === 'house') {
