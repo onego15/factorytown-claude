@@ -77,7 +77,8 @@ export function createBot(w: World, verbose = false) {
       if (has('house').length < 8 + stage * 3) tryHouse();
       // a growing town eats more bread: add another bread line when stocks run dry
       if (stage >= 4 && has('bakery').length < 3 && w.stock('bread') < 5 && w.coins > 400 && w.stock('plank') >= 35 && actions % 12 === 0) {
-        const f = build(w, 'farm', hc, { maxDist: 20 });
+        const f = build(w, 'farm', hc, { maxDist: 20, avoid: (x, y) => failed.has(`f${x},${y}`) });
+        if (f) failed.add(`f${f.x},${f.y}`);
         const m = f && build(w, 'mill', { x: f.x + 1, y: f.y + 1 });
         const b = m && build(w, 'bakery', { x: m.x, y: m.y });
         const placed: number[] = [];
@@ -95,7 +96,9 @@ export function createBot(w: World, verbose = false) {
       if (stage === 2) {
         tryResearch('food');
         if (w.research.has('food') && w.coins > 150 && w.stock('plank') >= 35 && w.stock('log') >= 5) {
-          const f = build(w, 'farm', hc);
+          const f = build(w, 'farm', hc, { avoid: (x, y) => failed.has(`f${x},${y}`) });
+          if (f) failed.add(`f${f.x},${f.y}`);
+          else failed.clear();
           const m = f && build(w, 'mill', { x: f.x + 1, y: f.y + 1 });
           const b = m && build(w, 'bakery', { x: m.x, y: m.y });
           const placed: number[] = [];
@@ -127,7 +130,9 @@ export function createBot(w: World, verbose = false) {
         if (w.research.has('metallurgy')) tryResearch('logistics');
         tryResearch('improve1');
         if (w.research.has('metallurgy') && w.coins > 250 && w.stock('stone') >= 30) {
-          const m = build(w, 'mine', hc, { maxDist: 22 });
+          const m = build(w, 'mine', hc, { maxDist: 22, avoid: (x, y) => failed.has(`m${x},${y}`) });
+          if (m) failed.add(`m${m.x},${m.y}`);
+          else failed.clear();
           const s = m && build(w, 'smelter', { x: m.x, y: m.y });
           const l = s && build(w, 'lumber', { x: s.x, y: s.y }, { minEff: 0.5 });
           const placed: number[] = [];

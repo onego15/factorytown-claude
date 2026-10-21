@@ -36,7 +36,9 @@ export class Particles {
         void main() {
           vC = color;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = size * uScale / -mv.z;
+          // keep puffs that drift close to the camera from turning into big blobs
+          gl_PointSize = min(size * uScale / -mv.z, 46.0);
+          vC.a *= smoothstep(2.5, 6.0, -mv.z);
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: `

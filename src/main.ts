@@ -11,6 +11,7 @@ import { Input } from './ui/input';
 import { GameApi, Tool, UI } from './ui/ui';
 import { SVG } from './ui/svg';
 import { dev } from './dev/autoplay';
+import { createBot } from './dev/bot';
 
 const SAVE_KEY = 'gearvale.save.v1';
 
@@ -172,7 +173,8 @@ class Game implements GameApi {
         case 'removed': {
           topo = true;
           const e = ev.ent;
-          if (e.type !== 'belt' && e.type !== 'road') {
+          // something built and removed within one frame (e.g. an undone attempt) leaves no trace
+          if (e.type !== 'belt' && e.type !== 'road' && !newIds.has(e.id)) {
             const c = { x: e.x + e.w / 2 - w.W / 2, y: w.heightAt(e.x, e.y) * 0.5, z: e.y + e.h / 2 - w.H / 2 };
             this.scene.particles.dust(c.x, c.y, c.z, Math.max(e.w, e.h), 16 + e.w * e.h * 4);
           }
@@ -291,7 +293,7 @@ const game = new Game();
 window.game = game;
 // expose a couple of helpers for automated tests
 (window as any).__gv = {
-  BUILDINGS, ITEMS, itemImg, dev, World,
+  BUILDINGS, ITEMS, itemImg, dev, World, createBot, updateQuests,
   /** screen position of a tile center (for automated pointer tests) */
   tileToScreen(x: number, y: number) {
     const w = game.world;

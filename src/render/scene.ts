@@ -131,8 +131,8 @@ const DAY: DayKey[] = [
   { t: 0.1, sun: 0xfff1d8, sunI: 2.7, sky: 0xcfe6ff, ground: 0x8a7a5c, hemiI: 1.35, top: 0x6aa8e0, horizon: 0xd4ecf7, fog: 0xcfe5f0, night: 0 },
   { t: 0.45, sun: 0xfff3dc, sunI: 2.8, sky: 0xcfe6ff, ground: 0x8a7a5c, hemiI: 1.35, top: 0x5f9fdc, horizon: 0xd6eef7, fog: 0xd2e7f1, night: 0 },
   { t: 0.57, sun: 0xffa66a, sunI: 1.9, sky: 0xffc9b5, ground: 0x6a5048, hemiI: 1.05, top: 0x6f7fc0, horizon: 0xffb48f, fog: 0xf0b59a, night: 0.25 },
-  { t: 0.65, sun: 0x8fa3ff, sunI: 0.75, sky: 0x5468a8, ground: 0x2c2a3a, hemiI: 0.8, top: 0x1d2550, horizon: 0x4a5a94, fog: 0x3f4d80, night: 1 },
-  { t: 0.9, sun: 0x8fa3ff, sunI: 0.75, sky: 0x5468a8, ground: 0x2c2a3a, hemiI: 0.8, top: 0x1d2550, horizon: 0x4a5a94, fog: 0x3f4d80, night: 1 },
+  { t: 0.65, sun: 0xa7b4ff, sunI: 1.0, sky: 0x6878b4, ground: 0x403c50, hemiI: 1.0, top: 0x1d2550, horizon: 0x4a5a94, fog: 0x3f4d80, night: 1 },
+  { t: 0.9, sun: 0xa7b4ff, sunI: 1.0, sky: 0x6878b4, ground: 0x403c50, hemiI: 1.0, top: 0x1d2550, horizon: 0x4a5a94, fog: 0x3f4d80, night: 1 },
   { t: 1.0, sun: 0xffb27a, sunI: 1.6, sky: 0xffd2b0, ground: 0x7a6650, hemiI: 1.0, top: 0x7fa6d6, horizon: 0xffc9a3, fog: 0xf6c7a8, night: 0.35 },
 ];
 
@@ -399,8 +399,9 @@ export class GameScene {
     wm.uSunDir.value.copy(dir);
     wm.uSky.value.copy(sm.uniforms.uHorizon.value);
     wm.uLight.value = 1 - night * 0.55;
-    this.particles.setLight(1 - night * 0.5);
-    this.clouds.material.color.setScalar(1 - night * 0.55);
+    this.particles.setLight(1 - night * 0.8);
+    this.clouds.material.color.setRGB(1 - night * 0.5, 1 - night * 0.5, 1 - night * 0.45);
+    this.clouds.material.opacity = 0.92 - night * 0.5;
     this.post.uniforms.uWarm.value = 1 - night;
   }
 

@@ -228,7 +228,7 @@ button { font-family: inherit; color: inherit; }
 #title .menu .btn.ghost { background: rgba(253,248,236,.9); box-shadow: var(--shadow); }
 #title .foot { position: absolute; bottom: 16px; color: #fff; opacity: .85; font-size: 12px; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
 
-#celebrate { position: absolute; top: 26%; left: 50%; transform: translate(-50%, -50%); text-align: center; z-index: 15; pointer-events: none !important; display: none; }
+#celebrate { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); text-align: center; z-index: 15; pointer-events: none !important; display: none; }
 #celebrate.show { display: block; animation: celebrate 5s ease forwards; }
 #celebrate .big { font-size: 46px; font-weight: 800; color: #fff7dc; text-shadow: 0 3px 0 #b8862e, 0 8px 22px rgba(60,40,10,.5); }
 #celebrate .small { font-size: 16px; font-weight: 700; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.6); margin-top: 6px; }
@@ -237,7 +237,12 @@ button { font-family: inherit; color: inherit; }
 #paused { position: absolute; top: 120px; left: 50%; transform: translateX(-50%); padding: 6px 16px; font-weight: 800; color: var(--ink-soft); display: none; pointer-events: none !important; }
 #paused.show { display: block; }
 
+#top .rank, .stat .d, #right-tools .btn { white-space: nowrap; }
 @media (max-width: 1100px) {
+  #town { min-width: 0; }
+  #town .rank { font-size: 11px; }
+  .stat { padding: 4px 6px; gap: 4px; }
+  .stat .d { font-size: 10px; }
   #quests { width: 230px; }
   #inspector { width: 270px; }
   .tool { width: 74px; }
@@ -248,3 +253,4 @@ button { font-family: inherit; color: inherit; }
 #ui > * { transition: opacity .5s; }
 #inspector .warnbox { background: #fdebd6; color: #8a4b12; font-size: 12.5px; line-height: 1.5; border-left: 3px solid #e8913a; }
 #inspector .warnbox .ico { vertical-align: -3px; margin-right: 4px; }
+#ui:has(#celebrate.show) #toasts { opacity: 0; transition: opacity .3s; }
