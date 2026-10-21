@@ -529,7 +529,7 @@ export class GameScene {
     this.ring.visible = false;
   }
 
-  showBeltPath(path: { x: number; y: number; dir: number; ok: boolean }[], kind: 'belt' | 'road' | 'remove') {
+  showBeltPath(path: { x: number; y: number; dir: number; ok: boolean; bridge?: boolean }[], kind: 'belt' | 'road' | 'remove') {
     const w = this.world;
     this.ghost.clear();
     this.ghostKey = '';
@@ -541,10 +541,10 @@ export class GameScene {
         const h = Math.max(0, w.heightAt(p.x, p.y)) * LEVEL_H;
         const mat = p.ok ? this.ghostMat : this.ghostMat;
         const g = new THREE.Group();
-        const b = new THREE.Mesh(base, new THREE.MeshBasicMaterial({ color: p.ok ? 0x9cf0a8 : 0xff7a6a, transparent: true, opacity: 0.55, depthWrite: false }));
-        b.position.y = BELT_Y - 0.04;
+        const b = new THREE.Mesh(base, new THREE.MeshBasicMaterial({ color: !p.ok ? 0xff7a6a : p.bridge ? 0x8fd3ff : 0x9cf0a8, transparent: true, opacity: 0.55, depthWrite: false }));
+        b.position.y = BELT_Y - 0.04 + (p.bridge ? 0.35 : 0);
         const a = new THREE.Mesh(arrow, new THREE.MeshBasicMaterial({ color: p.ok ? 0x1e6b33 : 0x8a1d12, transparent: true, opacity: 0.9, depthWrite: false }));
-        a.position.y = BELT_Y + 0.04;
+        a.position.y = BELT_Y + 0.04 + (p.bridge ? 0.35 : 0);
         a.scale.set(1, 0.4, 1);
         g.add(b, a);
         void mat;

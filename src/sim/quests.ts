@@ -1,5 +1,6 @@
 // Guided objectives that teach the production chains and reward progress.
 
+import { MILESTONES } from './data';
 import { World } from './world';
 
 export interface Quest {
@@ -54,9 +55,9 @@ export const QUESTS: Quest[] = [
     check: (w) => (w.received.bread ?? 0) >= 10, progress: (w) => [w.received.bread ?? 0, 10],
   },
   {
-    id: 'village', title: '人口20人の「村」になる', reward: 0,
+    id: 'village', title: `人口${MILESTONES[1].pop}人の「村」になる`, reward: 0,
     hint: '住宅に物資を届け続けると住民が増えます。',
-    check: (w) => w.milestone >= 1, progress: (w) => [w.pop, 20],
+    check: (w) => w.milestone >= 1, progress: (w) => [w.pop, MILESTONES[1].pop],
   },
   {
     id: 'house2', title: '民家を3軒に発展させる', reward: 80,
@@ -79,9 +80,9 @@ export const QUESTS: Quest[] = [
     check: (w) => (w.received.iron ?? 0) >= 10, progress: (w) => [w.received.iron ?? 0, 10],
   },
   {
-    id: 'town', title: '人口50人の「町」になる', reward: 0,
+    id: 'town', title: `人口${MILESTONES[2].pop}人の「町」になる`, reward: 0,
     hint: '民家をどんどん増やしましょう。',
-    check: (w) => w.milestone >= 2, progress: (w) => [w.pop, 50],
+    check: (w) => w.milestone >= 2, progress: (w) => [w.pop, MILESTONES[2].pop],
   },
   {
     id: 'tools', title: '道具をつくって届ける', reward: 120,
@@ -94,9 +95,9 @@ export const QUESTS: Quest[] = [
     check: (w) => count(w, (t, e) => t === 'house' && e.tier >= 2) > 0,
   },
   {
-    id: 'city', title: '人口100人の「都市」になる', reward: 0,
+    id: 'city', title: `人口${MILESTONES[3].pop}人の「都市」になる`, reward: 0,
     hint: 'ギアヴェイルを大きな都市に育てましょう！',
-    check: (w) => w.milestone >= 3, progress: (w) => [w.pop, 100],
+    check: (w) => w.milestone >= 3, progress: (w) => [w.pop, MILESTONES[3].pop],
   },
 ];
 

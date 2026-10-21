@@ -2,8 +2,8 @@
 
 import * as THREE from 'three';
 import { ITEM_IDS, ItemId } from '../sim/data';
-import { BELT_Y, BeltGeom, V3, beltPoint, beltYaw } from '../sim/geom';
-import { World } from '../sim/world';
+import { BELT_Y, BeltGeom, LEVEL_H, V3, beltPoint, beltYaw, bridgeLift } from '../sim/geom';
+import { Entity, World } from '../sim/world';
 import { itemGeom } from './itemModels';
 import { Kit } from './kit';
 import { PAL } from './palette';
@@ -118,6 +118,54 @@ function curveFrame(mirror: boolean): THREE.BufferGeometry {
   return k.build();
 }
 
+/** Arched bridge deck for a belt spanning `len` tiles, in local space (travel along +x, entry tile centred at x=0) */
+function bridgeGeoms(e: Entity, w: World): { frame: THREE.BufferGeometry; surface: THREE.BufferGeometry } {
+  const len = e.len!;
+  const k = new Kit();
+  k.jitter = 0.03;
+  const N = len * 6;
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  const at = (s: number) => bridgeLift(s, len);
+  for (let i = 0; i <= N; i++) {
+    const s = (i / N) * len;
+    const y = at(s) + 0.002;
+    pos.push(s - 0.5, y, -0.25, s - 0.5, y, 0.25);
+    uv.push(s, 0, s, 1);
+    if (i < N) {
+      const a = i * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    if (i === N) break;
+    const s1 = ((i + 1) / N) * len;
+    const y1 = at(s1);
+    const ang = Math.atan2(y1 - at(s), s1 - s);
+    const l = Math.hypot(s1 - s, y1 - at(s)) + 0.01;
+    const mx = (s + s1) / 2 - 0.5, my = (at(s) + y1) / 2;
+    k.box(l, 0.08, 0.64, PAL.darkWood, mx, my - 0.1, 0, { rz: ang });
+    for (const z of [-0.3, 0.3]) k.box(l, 0.07, 0.06, PAL.brass, mx, my - 0.04, z, { rz: ang });
+    // parapet rails on the raised part
+    if (Math.min(s, len - s) > 0.6) for (const z of [-0.33, 0.33]) k.box(l, 0.03, 0.03, PAL.wood, mx, my + 0.12, z, { rz: ang });
+  }
+  // piers at the tile edges of the crossed span, plus parapet posts
+  const h0 = w.heightAt(e.x, e.y);
+  for (let t = 1; t < len; t++) {
+    const tx = e.x + DXr[e.dir] * t, ty = e.y + DYr[e.dir] * t;
+    const g = (Math.min(w.heightAt(tx, ty), w.heightAt(tx - DXr[e.dir], ty - DYr[e.dir])) - h0) * LEVEL_H - BELT_Y;
+    const top = at(t) - 0.13;
+    if (top - g > 0.05) for (const z of [-0.27, 0.27]) k.box(0.08, top - g, 0.08, PAL.stone, t - 0.5, g, z);
+    if (t > 1 && t < len - 1) k.box(0.1, 0.06, 0.7, PAL.darkWood, t - 0.5, top - 0.02, 0);
+    for (const z of [-0.33, 0.33]) if (Math.min(t, len - t) >= 1) k.box(0.04, 0.16, 0.04, PAL.darkWood, t - 0.5, at(t) - 0.04, z);
+  }
+  const surface = new THREE.BufferGeometry();
+  surface.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  surface.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  surface.setIndex(idx);
+  surface.computeVertexNormals();
+  return { frame: k.build(), surface };
+}
+const DXr = [1, 0, -1, 0];
+const DYr = [0, 1, 0, -1];
+
 const MAX_BELTS = 4096;
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -132,6 +180,9 @@ export class BeltView {
   private surfaces: THREE.InstancedMesh[] = [];
   private supports: THREE.InstancedMesh;
   private items = new Map<ItemId, THREE.InstancedMesh>();
+  private bridges = new THREE.Group();
+  private frameMat: THREE.Material;
+  private surfMat: THREE.Material;
   private itemCap = 2048;
   private tmp: V3 = { x: 0, y: 0, z: 0 };
   extraItems: { item: ItemId; x: number; y: number; z: number; s: number; ry: number }[] = [];
@@ -139,6 +190,9 @@ export class BeltView {
   constructor(private world: World) {
     const frameMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0.1, flatShading: true });
     const surfMat = new THREE.MeshStandardMaterial({ map: this.tex, roughness: 0.8 });
+    this.frameMat = frameMat;
+    this.surfMat = surfMat;
+    this.group.add(this.bridges);
     const frames = [straightFrame(), curveFrame(false), curveFrame(true)];
     const surfs = [straightSurface(), curveSurface(false), curveSurface(true)];
     for (let i = 0; i < 3; i++) {
@@ -180,8 +234,23 @@ export class BeltView {
     w.ensureTopology();
     const counts = [0, 0, 0];
     let sup = 0;
+    for (const c of this.bridges.children) for (const m of c.children) (m as THREE.Mesh).geometry.dispose();
+    this.bridges.clear();
     for (const e of w.entities.values()) {
       if (e.type !== 'belt') continue;
+      if ((e.len ?? 1) > 1) {
+        const { frame, surface } = bridgeGeoms(e, w);
+        const holder = new THREE.Group();
+        holder.position.set(e.x + 0.5 - w.W / 2, e.yIn!, e.y + 0.5 - w.H / 2);
+        holder.rotation.y = -e.dir * Math.PI * 0.5;
+        const fm = new THREE.Mesh(frame, this.frameMat);
+        fm.castShadow = fm.receiveShadow = true;
+        const sm = new THREE.Mesh(surface, this.surfMat);
+        sm.receiveShadow = true;
+        holder.add(fm, sm);
+        this.bridges.add(holder);
+        continue;
+      }
       const shape = e.shape ?? 0;
       const cx = e.x + 0.5 - w.W / 2, cz = e.y + 0.5 - w.H / 2;
       const yIn = e.yIn!, yOut = e.yOut!;

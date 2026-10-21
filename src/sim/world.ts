@@ -1,7 +1,7 @@
 // The simulation: world state, construction, logistics, production, town and research.
 
 import {
-  BELT_BASE_SPEED, BELT_SPACING, BUILDINGS, BuildingId, Cost, HALL_WORKERS, HOUSE_CONSUME_INTERVAL,
+  BELT_BASE_SPEED, BELT_SPACING, BRIDGE_COST, BRIDGE_MAX_LEN, BUILDINGS, BuildingId, Cost, HALL_WORKERS, HOUSE_CONSUME_INTERVAL,
   HOUSE_DOWNGRADE_TIME, HOUSE_TIERS, HOUSE_UPGRADE_TIME, ITEMS, ITEM_IDS, ItemBag, ItemId, LEVEL_SPEED, MILESTONES,
   RESEARCH, ResearchId, TICK, UPGRADE_COST,
 } from './data';
@@ -44,6 +44,8 @@ export interface Entity {
   shape?: number;
   yIn?: number;
   yOut?: number;
+  len?: number; // bridges: tiles covered from entry to exit
+  link?: number; // bridges: the paired entry/exit entity
   // houses
   tier?: number;
   supply?: ItemBag;
@@ -69,6 +71,16 @@ export type GameEvent =
   | { t: 'milestone'; index: number }
   | { t: 'upgraded'; id: number }
   | { t: 'quest'; id: string; reward: number };
+
+/** One step of a dragged belt line: a plain belt, a bridge over crossing lines, or a tile that must be left alone */
+export interface BeltStep {
+  x: number;
+  y: number;
+  dir: number;
+  kind: 'belt' | 'bridge' | 'blocked';
+  len?: number;
+  reason?: string;
+}
 
 export interface PlaceCheck {
   ok: boolean;
@@ -98,6 +110,7 @@ export class World {
   /** items accepted into storage buildings, ever (for objectives) */
   received: ItemBag = {};
   soldTotal = 0;
+  overflowSold = 0;
   questsDone = new Set<string>();
   events: GameEvent[] = [];
   topoDirty = true;
@@ -111,6 +124,7 @@ export class World {
   statCoins: Float32Array = new Float32Array(STAT_SECONDS);
   statSecond = 0;
   private outputs = new Map<number, number[]>(); // building id -> belt ids it can push into
+  private lineEnds = new Map<number, number>(); // belt id -> entity the line ends in (0: dead end)
   private coverage = new Map<number, number[]>(); // house id -> distributor ids by distance
   private tmp: V3 = { x: 0, y: 0, z: 0 };
   private tickAcc = 0;
@@ -297,7 +311,7 @@ export class World {
         if (occ) {
           const o = this.entities.get(occ)!;
           // belts may be re-laid over belts (direction change)
-          if (!(type === 'belt' && o.type === 'belt')) {
+          if (!(type === 'belt' && o.type === 'belt' && (o.len ?? 1) === 1)) {
             fail('他の建物と重なっています');
             bad = true;
           }
@@ -324,7 +338,7 @@ export class World {
     }
     if (res.ok && !ignoreCost) {
       const existing = this.entAt(x, y);
-      const free = type === 'belt' && existing?.type === 'belt';
+      const free = type === 'belt' && existing?.type === 'belt' && (existing.len ?? 1) === 1;
       const c = free ? null : this.canAfford(def.cost);
       if (c) fail(c);
     }
@@ -351,7 +365,7 @@ export class World {
     if (!chk.ok) return chk.reason!;
     if (type === 'belt') {
       const existing = this.entAt(x, y);
-      if (existing && existing.type === 'belt') {
+      if (existing && existing.type === 'belt' && (existing.len ?? 1) === 1) {
         if (existing.dir !== rot) {
           existing.dir = rot;
           this.topoDirty = true;
@@ -369,6 +383,13 @@ export class World {
   remove(id: number): boolean {
     const e = this.entities.get(id);
     if (!e || e.type === 'hall') return false;
+    if (e.link && this.entities.has(e.link)) {
+      // bridges are removed as a whole
+      const other = this.entities.get(e.link)!;
+      other.link = undefined;
+      this.remove(other.id);
+      if (e.type === 'belt' || other.type === 'belt') this.coins += BRIDGE_COST;
+    }
     for (let yy = e.y; yy < e.y + e.h; yy++)
       for (let xx = e.x; xx < e.x + e.w; xx++) this.tileEnt[this.idx(xx, yy)] = 0;
     this.entities.delete(id);
@@ -381,9 +402,122 @@ export class World {
     return true;
   }
 
+  /** Validate a belt bridge from (x,y) heading dir, covering `len` tiles (entry … exit). */
+  checkBridge(x: number, y: number, dir: number, len: number, ignoreCost = false): PlaceCheck {
+    const res: PlaceCheck = { ok: true, badTiles: [], clearsTrees: 0 };
+    const fail = (r: string, i?: number) => {
+      if (res.ok) {
+        res.ok = false;
+        res.reason = r;
+      }
+      if (i !== undefined) res.badTiles.push(i);
+    };
+    if (len < 3 || len > BRIDGE_MAX_LEN) fail(`橋は最大${BRIDGE_MAX_LEN - 2}マスまでまたげます`);
+    const ex = x + DX[dir] * (len - 1), ey = y + DY[dir] * (len - 1);
+    if (!this.inBounds(x, y) || !this.inBounds(ex, ey)) {
+      fail('マップの外です');
+      return res;
+    }
+    const h0 = this.heightAt(x, y);
+    for (let i = 0; i < len; i++) {
+      const tx = x + DX[dir] * i, ty = y + DY[dir] * i;
+      const idx = this.idx(tx, ty);
+      const ht = this.heightAt(tx, ty);
+      const o = this.entAt(tx, ty);
+      if (ht < 0) fail('水の上には架けられません', idx);
+      if (i === 0 || i === len - 1) {
+        if (ht !== h0) fail('橋の両端は同じ高さにしてください', idx);
+        if (o) fail('橋の両端には空き地が必要です', idx);
+        if (this.terrain.tree[idx]) res.clearsTrees++;
+      } else {
+        if (ht > h0) fail('高い土地はまたげません', idx);
+        if (o && o.type !== 'belt' && o.type !== 'road') fail('建物はまたげません', idx);
+      }
+      const g = this.terrain.ground[idx];
+      void g;
+    }
+    if (res.ok && !ignoreCost && this.coins < BRIDGE_COST + 1) fail('コインが足りません');
+    return res;
+  }
+
+  placeBridge(x: number, y: number, dir: number, len: number): Entity | string {
+    const c = this.checkBridge(x, y, dir, len);
+    if (!c.ok) return c.reason!;
+    this.coins -= BRIDGE_COST + BUILDINGS.belt.cost.coins;
+    const a = this.addEntity('belt', x, y, dir);
+    a.len = len;
+    const b = this.addEntity('bridgeEnd', x + DX[dir] * (len - 1), y + DY[dir] * (len - 1), dir);
+    a.link = b.id;
+    b.link = a.id;
+    this.topoDirty = true;
+    return a;
+  }
+
+  /**
+   * Turn a dragged belt path into placement steps. Straight runs that cross other belts or roads
+   * become bridges; a straight crossing that cannot be bridged is left untouched instead of
+   * re-routing the other line.
+   */
+  planBelt(path: { x: number; y: number; dir: number }[]): BeltStep[] {
+    const out: BeltStep[] = [];
+    const n = path.length;
+    const crossing = (i: number) => {
+      const o = this.entAt(path[i].x, path[i].y);
+      if (!o) return false;
+      if (o.type === 'road') return true;
+      return o.type === 'belt' && (o.len ?? 1) === 1 && o.dir !== path[i].dir;
+    };
+    for (let i = 0; i < n; i++) {
+      const s = path[i];
+      if (n > 1 && i + 1 < n - 1 && crossing(i + 1) && path[i + 1].dir === s.dir) {
+        let found = -1;
+        for (let j = i + 2; j < n && j - i + 1 <= BRIDGE_MAX_LEN; j++) {
+          if (path[j - 1].dir !== s.dir) break;
+          if (!this.entAt(path[j].x, path[j].y)) {
+            // a free tile followed by another crossing: keep the bridge going over both
+            const more = j + 2 < n && path[j].dir === s.dir && crossing(j + 1) && path[j + 1].dir === s.dir && j + 2 - i + 1 <= BRIDGE_MAX_LEN;
+            if (more) continue;
+            if (path[j].dir === s.dir || j === n - 1) found = j;
+            break;
+          }
+          if (!crossing(j)) break;
+        }
+        if (found > 0 && this.checkBridge(s.x, s.y, s.dir, found - i + 1, true).ok) {
+          out.push({ x: s.x, y: s.y, dir: s.dir, kind: 'bridge', len: found - i + 1 });
+          i = found;
+          continue;
+        }
+      }
+      const o = this.entAt(s.x, s.y);
+      if (i > 0 && i < n - 1 && o?.type === 'belt' && o.dir !== s.dir && path[i - 1].dir === s.dir) {
+        out.push({ ...s, kind: 'blocked', reason: 'ベルトが交差しています（橋の両端に空きマスが必要です）' });
+        continue;
+      }
+      out.push({ ...s, kind: 'belt' });
+    }
+    return out;
+  }
+
+  /** Place the steps of a planned belt line. Returns placed entity ids and the last failure. */
+  placeBeltSteps(steps: BeltStep[]): { ids: number[]; failed: string } {
+    const ids: number[] = [];
+    let failed = '';
+    for (const s of steps) {
+      if (s.kind === 'blocked') {
+        failed = s.reason!;
+        continue;
+      }
+      const before = this.entAt(s.x, s.y);
+      const r = s.kind === 'bridge' ? this.placeBridge(s.x, s.y, s.dir, s.len!) : this.place('belt', s.x, s.y, s.dir);
+      if (typeof r === 'string') failed = r;
+      else if (r !== before) ids.push(r.id); // re-laid belts are not new
+    }
+    return { ids, failed };
+  }
+
   rotateBelt(id: number) {
     const e = this.entities.get(id);
-    if (!e || (e.type !== 'belt')) return;
+    if (!e || e.type !== 'belt' || (e.len ?? 1) > 1) return;
     e.dir = (e.dir + 1) & 3;
     this.topoDirty = true;
     this.events.push({ t: 'changed', id });
@@ -441,15 +575,21 @@ export class World {
       const back = this.entAt(e.x - DX[d], e.y - DY[d]);
       let backFeeds = false;
       if (back) {
-        if (back.type === 'belt') backFeeds = back.dir === d;
+        if (back.type === 'belt') backFeeds = back.dir === d && (back.len ?? 1) === 1;
+        else if (back.type === 'bridgeEnd') backFeeds = back.dir === d;
         else backFeeds = this.isOutputter(back);
+      }
+      if ((e.len ?? 1) > 1) {
+        e.shape = 0;
+        e.yIn = e.yOut = hb * LEVEL_H + BELT_Y;
+        continue;
       }
       const sideFeeds = (sd: number) => {
         const s = this.entAt(e.x + DX[sd], e.y + DY[sd]);
         if (!s) return false;
         // a belt that starts beside a producer curves out of it and receives its output
         if (s.type !== 'belt') return this.isOutputter(s);
-        return s.dir === opposite(sd) && Math.abs(this.heightAt(s.x, s.y) - hb) <= 1;
+        return s.dir === opposite(sd) && (s.len ?? 1) === 1 && Math.abs(this.heightAt(s.x, s.y) - hb) <= 1;
       };
       const l = sideFeeds(leftOf(d)), r = sideFeeds(rightOf(d));
       e.shape = !backFeeds && l !== r ? (l ? 1 : 2) : 0;
@@ -465,6 +605,7 @@ export class World {
     }
     // building outputs
     this.outputs.clear();
+    this.lineEnds.clear();
     for (const e of this.entities.values()) {
       if (!this.isOutputter(e)) continue;
       const list: number[] = [];
@@ -540,6 +681,31 @@ export class World {
   }
 
   /** Can building e take one more unit of item from a belt? */
+  /** The entity a belt line eventually delivers into (following belts and bridges), or undefined */
+  lineEnd(beltId: number): Entity | undefined {
+    this.ensureTopology();
+    let id = this.lineEnds.get(beltId);
+    if (id === undefined) {
+      let cur = this.entities.get(beltId);
+      const seen = new Set<number>();
+      while (cur && cur.type === 'belt' && !seen.has(cur.id)) {
+        seen.add(cur.id);
+        const l = cur.len ?? 1;
+        cur = this.entAt(cur.x + DX[cur.dir] * l, cur.y + DY[cur.dir] * l);
+      }
+      id = cur && cur.type !== 'belt' ? cur.id : 0;
+      this.lineEnds.set(beltId, id);
+    }
+    return id ? this.entities.get(id) : undefined;
+  }
+
+  /** Whether a building ever takes this item (ignores how full it is) */
+  wants(e: Entity, item: ItemId): boolean {
+    const def = BUILDINGS[e.type];
+    if (def.kind === 'crafter') return !!def.recipe!.in[item];
+    return def.kind === 'hall' || def.kind === 'storage' || def.kind === 'trade' || def.kind === 'splitter';
+  }
+
   accepts(e: Entity, item: ItemId): boolean {
     const def = BUILDINGS[e.type];
     switch (def.kind) {
@@ -550,7 +716,7 @@ export class World {
       }
       case 'hall':
       case 'storage':
-        return (e.inv[item] ?? 0) < (def.storageCap ?? 0);
+        return true; // overflow is exported automatically, so storage never blocks a line
       case 'trade': {
         let tot = 0;
         for (const v of Object.values(e.inv)) tot += v as number;
@@ -643,14 +809,18 @@ export class World {
 
   /** Try to move an item into the entity at tile (x,y) coming from belt `from`. */
   private transfer(from: Entity, item: BeltItem, overflow: number): boolean {
-    const tx = from.x + DX[from.dir], ty = from.y + DY[from.dir];
+    const fl = from.len ?? 1;
+    const tx = from.x + DX[from.dir] * fl, ty = from.y + DY[from.dir] * fl;
     const t = this.entAt(tx, ty);
     if (!t) return false;
     if (t.type === 'belt') {
       if (t.dir === opposite(from.dir)) return false;
-      if (Math.abs(this.heightAt(tx, ty) - this.heightAt(from.x, from.y)) > 1) return false;
+      const ex = from.x + DX[from.dir] * (fl - 1), ey = from.y + DY[from.dir] * (fl - 1);
+      if (Math.abs(this.heightAt(tx, ty) - this.heightAt(ex, ey)) > 1) return false;
       const items = t.items!;
+      const tl = t.len ?? 1;
       let p: number;
+      if (tl > 1 && t.dir !== from.dir) return false; // bridges only load from behind
       if (t.dir === from.dir) p = 0;
       else {
         // side entry: curved belts take it from the start, straight belts in the middle
@@ -659,9 +829,10 @@ export class World {
         else p = 0.5;
       }
       if (p === 0) {
+        const sp = BELT_SPACING / tl;
         const last = items.length ? items[items.length - 1].pos : 2;
-        if (last < BELT_SPACING) return false;
-        p = Math.min(overflow, last - BELT_SPACING);
+        if (last < sp) return false;
+        p = Math.min((overflow * fl) / tl, last - sp);
         items.push(item);
         item.pos = Math.max(0, p);
         return true;
@@ -672,22 +843,33 @@ export class World {
       items.sort((a, b) => b.pos - a.pos);
       return true;
     }
-    if (t.type === 'road' || t.type === 'house') return false;
-    if (Math.abs(this.heightAt(tx, ty) - this.heightAt(from.x, from.y)) > 1) return false;
+    if (t.type === 'road' || t.type === 'house' || t.type === 'bridgeEnd') return false;
+    if (Math.abs(this.heightAt(tx, ty) - this.heightAt(from.x + DX[from.dir] * (fl - 1), from.y + DY[from.dir] * (fl - 1))) > 1) return false;
     if (!this.accepts(t, item.item)) return false;
+    if (this.isStorage(t)) {
+      this.received[item.item] = (this.received[item.item] ?? 0) + 1;
+      if ((t.inv[item.item] ?? 0) >= (BUILDINGS[t.type].storageCap ?? 0)) {
+        // storage full: the surplus is exported at a third of its value
+        const v = ITEMS[item.item].value / 3;
+        this.earn(v);
+        this.overflowSold += v;
+        this.addStat(this.statCons, item.item, 1);
+        return true;
+      }
+    }
     t.inv[item.item] = (t.inv[item.item] ?? 0) + 1;
-    if (this.isStorage(t)) this.received[item.item] = (this.received[item.item] ?? 0) + 1;
     return true;
   }
 
   /** How far the front item of a belt may advance (keeps spacing across belt joints) */
   private frontLimit(e: Entity): number {
-    const t = this.entAt(e.x + DX[e.dir], e.y + DY[e.dir]);
+    const el = e.len ?? 1;
+    const t = this.entAt(e.x + DX[e.dir] * el, e.y + DY[e.dir] * el);
     if (!t || t.type !== 'belt' || t.dir !== e.dir) return 1;
     const items = t.items!;
     if (!items.length) return 1;
-    const last = items[items.length - 1].pos;
-    return Math.min(1, 1 + last - BELT_SPACING);
+    const last = items[items.length - 1].pos * (t.len ?? 1); // in tiles
+    return Math.min(1, 1 - (BELT_SPACING - last) / el);
   }
 
   private updateBelts(dt: number) {
@@ -708,16 +890,18 @@ export class World {
     for (const e of this.entities.values()) {
       if (e.type !== 'belt') continue;
       const items = e.items!;
+      const el = e.len ?? 1;
+      const st = step / el, sp = BELT_SPACING / el;
       let limit = this.frontLimit(e);
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
         if (it.stamp === this.tickNo) {
-          limit = it.pos - BELT_SPACING;
+          limit = it.pos - sp;
           continue;
         }
-        let np = Math.min(it.pos + step, limit);
-        if (i === 0 && limit >= 1 && it.pos + step >= 1) {
-          if (this.transfer(e, it, it.pos + step - 1)) {
+        let np = Math.min(it.pos + st, limit);
+        if (i === 0 && limit >= 1 && it.pos + st >= 1) {
+          if (this.transfer(e, it, it.pos + st - 1)) {
             it.stamp = this.tickNo;
             items.splice(i, 1);
             i--;
@@ -727,7 +911,7 @@ export class World {
           np = 1;
         }
         if (np > it.pos) it.pos = np;
-        limit = it.pos - BELT_SPACING;
+        limit = it.pos - sp;
       }
     }
   }
@@ -739,12 +923,22 @@ export class World {
     const src = BUILDINGS[e.type].kind === 'splitter' ? e.inv : e.out;
     const types = (Object.keys(src) as ItemId[]).filter((k) => (src[k] ?? 0) > 0);
     if (!types.length) return;
+    const smart = BUILDINGS[e.type].kind === 'splitter';
     for (let k = 0; k < outs.length; k++) {
       const b = this.entities.get(outs[(e.rr + k) % outs.length]);
       if (!b || !b.items) continue;
       const last = b.items.length ? b.items[b.items.length - 1].pos : 2;
-      if (last < BELT_SPACING) continue;
-      const item = types[(e.rr + k) % types.length];
+      if (last < BELT_SPACING / (b.len ?? 1)) continue;
+      let item = types[(e.rr + k) % types.length];
+      if (smart) {
+        // splitters only send goods down a line whose destination can use them
+        const end = this.lineEnd(b.id);
+        if (end && !this.wants(end, item)) {
+          const alt = types.find((t) => this.wants(end, t));
+          if (!alt) continue;
+          item = alt;
+        }
+      }
       src[item] = (src[item] ?? 0) - 1;
       const it: BeltItem = { id: this.nextItemId++, item, pos: 0, px: 0, py: 0, pz: 0 };
       beltPoint(this.beltGeom(b), 0, this.W, this.H, this.tmp);

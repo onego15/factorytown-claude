@@ -171,6 +171,22 @@ describe('logistics and production', () => {
     expect(Math.abs(up - down)).toBeLessThanOrEqual(2);
   });
 
+  it('splitters do not send goods down a line whose destination cannot use them', () => {
+    const w = flatWorld();
+    w.research.add('logistics');
+    w.research.add('food');
+    trees(w, 0, 0, 6, 6);
+    place(w, 'lumber', 2, 8);
+    belt(w, 4, 8, 0, 2);
+    place(w, 'splitter', 6, 8);
+    belt(w, 6, 7, 3, 2); // up into a mill, which has no use for logs
+    place(w, 'mill', 5, 4); // x5-6, y4-5
+    belt(w, 6, 9, 1, 3); // down (dead end)
+    run(w, 40);
+    expect(w.entAt(6, 7)!.items!.length + w.entAt(6, 6)!.items!.length).toBe(0);
+    expect(itemsOnBelts(w, 'log')).toBeGreaterThan(3);
+  });
+
   it('multi-input recipe (smelter) waits for all inputs', () => {
     const w = flatWorld();
     w.research.add('stonework');
@@ -239,7 +255,7 @@ describe('town', () => {
     expect(w.coins).toBeGreaterThan(coins0);
     expect(h.tier).toBe(0); // needs research
     w.research.add('housing2');
-    run(w, 20);
+    run(w, 30);
     expect(h.tier).toBe(1);
     expect(w.pop).toBeGreaterThanOrEqual(6 + 6);
   });
@@ -272,6 +288,23 @@ describe('town', () => {
   });
 });
 
+describe('storage overflow', () => {
+  it('a full storage exports the surplus instead of blocking the belt', () => {
+    const w = flatWorld();
+    trees(w, 5, 16, 9, 23);
+    const hall = w.entities.get(w.hallId)!;
+    hall.inv.log = 120; // full
+    place(w, 'lumber', 10, 19);
+    belt(w, 12, 20, 0, 8);
+    const c0 = w.coins;
+    run(w, 60);
+    expect(hall.inv.log).toBe(120);
+    expect(w.overflowSold).toBeGreaterThan(3);
+    expect(w.coins).toBeGreaterThan(c0);
+    expect(itemsOnBelts(w)).toBeLessThan(8); // line keeps flowing
+  });
+});
+
 describe('research & upgrades', () => {
   it('research costs resources, takes time and unlocks buildings', () => {
     const w = flatWorld();
@@ -281,7 +314,7 @@ describe('research & upgrades', () => {
     expect(w.coins).toBe(c0 - 60);
     expect(w.stock('plank')).toBe(p0 - 15);
     expect(w.startResearch('stonework')).toBe(false); // one at a time
-    run(w, 11);
+    run(w, 21);
     expect(w.isUnlocked('mill')).toBe(true);
     expect(w.canResearch('housing3')).toContain('先に');
   });
@@ -334,5 +367,76 @@ describe('save / load', () => {
     expect(ore).toBeGreaterThan(10);
     expect(trees).toBeGreaterThan(150);
     expect(w.entities.get(w.hallId)!.type).toBe('hall');
+  });
+});
+
+describe('belt bridges', () => {
+  function crossing() {
+    const w = flatWorld();
+    trees(w, 5, 16, 9, 23);
+    trees(w, 16, 9, 19, 13);
+    const hall = w.entities.get(w.hallId)!;
+    hall.inv.log = 0;
+    place(w, 'lumber', 10, 19); // camp A, east line along y=20 into the hall
+    place(w, 'lumber', 14, 12); // camp B x14-15 y12-13, south line along x=15
+    belt(w, 15, 14, 1, 12); // x=15, y 14..25 heading south (dead end)
+    const path = [];
+    for (let x = 12; x <= 19; x++) path.push({ x, y: 20, dir: 0 });
+    const steps = w.planBelt(path);
+    return { w, hall, steps };
+  }
+  it('a dragged line that crosses another belt is planned as a bridge', () => {
+    const { steps } = crossing();
+    const br = steps.filter((s) => s.kind === 'bridge');
+    expect(br).toHaveLength(1);
+    expect(br[0]).toMatchObject({ x: 14, y: 20, dir: 0, len: 3 });
+    expect(steps.some((s) => s.kind === 'blocked')).toBe(false);
+  });
+  it('items travel over the bridge while the line below keeps flowing', () => {
+    const { w, hall, steps } = crossing();
+    const coins = w.coins;
+    const r = w.placeBeltSteps(steps);
+    expect(r.failed).toBe('');
+    expect(w.coins).toBe(coins - 5 * 1 - (1 + 8)); // 5 plain belts + one bridge
+    expect(w.entAt(15, 20)!.dir).toBe(1); // the crossed belt is untouched
+    run(w, 58); // production history covers the last 60 s
+    expect(hall.inv.log!).toBeGreaterThan(8);
+    const below = [...w.entities.values()].filter((e) => e.type === 'belt' && e.x === 15 && (e.len ?? 1) === 1);
+    const onBelow = below.reduce((n, e) => n + e.items!.length, 0);
+    expect(onBelow).toBeGreaterThan(8); // camp B's logs pass under the bridge towards the dead end
+    expect(w.entAt(15, 25)!.items!.length).toBeGreaterThan(0);
+    // conservation across both lines
+    const camps = [...w.entities.values()].filter((e) => e.type === 'lumber');
+    const produced = camps.reduce((n, c) => n + c.cycles.length, 0);
+    const buffered = camps.reduce((n, c) => n + (c.out.log ?? 0), 0);
+    expect(hall.inv.log! + itemsOnBelts(w, 'log') + buffered).toBe(produced);
+  });
+  it('removing either end removes the whole bridge with a full refund, and bridges survive save/load', () => {
+    const { w, steps } = crossing();
+    w.placeBeltSteps(steps);
+    run(w, 20);
+    const w2 = World.deserialize(w.serialize());
+    const entry = w2.entAt(14, 20)!;
+    expect(entry.len).toBe(3);
+    expect(w2.entAt(16, 20)!.type).toBe('bridgeEnd');
+    const coins = w2.coins;
+    expect(w2.remove(w2.entAt(16, 20)!.id)).toBe(true);
+    expect(w2.entAt(14, 20)).toBeUndefined();
+    expect(w2.entAt(16, 20)).toBeUndefined();
+    expect(w2.coins).toBe(coins + 9);
+  });
+  it('a crossing without room for the bridge ends is left alone instead of being rerouted', () => {
+    const w = flatWorld();
+    belt(w, 15, 14, 1, 12);
+    belt(w, 16, 14, 1, 12);
+    belt(w, 14, 14, 1, 12);
+    const row = (x0: number, x1: number) => Array.from({ length: x1 - x0 + 1 }, (_, i) => ({ x: x0 + i, y: 20, dir: 0 }));
+    const steps = w.planBelt(row(12, 17));
+    // 14,15,16 are crossed but 13 → 17 is a valid 5-tile bridge
+    expect(steps.find((s) => s.kind === 'bridge')).toMatchObject({ x: 13, len: 5 });
+    const tight = w.planBelt(row(14, 17)); // starts on a crossed belt: no room for the entry
+    expect(tight.some((s) => s.kind === 'blocked')).toBe(true);
+    w.placeBeltSteps(tight);
+    expect(w.entAt(15, 20)!.dir).toBe(1);
   });
 });

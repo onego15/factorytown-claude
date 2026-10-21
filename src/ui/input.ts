@@ -1,6 +1,6 @@
 // Mouse / keyboard controller: camera, building placement, belt drawing, selection and demolition.
 
-import { BUILDINGS, BuildingId, ITEMS } from '../sim/data';
+import { BRIDGE_COST, BUILDINGS, BuildingId, ITEMS } from '../sim/data';
 import { DX, DY } from '../sim/geom';
 import { audio } from '../audio/audio';
 import { GameScene } from '../render/scene';
@@ -266,15 +266,23 @@ export class Input {
     if (tool.kind !== 'build') return;
     const w = this.g.world;
     const p = this.path(sx, sy);
-    let placed = 0, failed = '';
-    for (const s of p) {
-      const existing = w.entAt(s.x, s.y);
-      if (tool.type === 'road' && existing?.type === 'road') continue;
-      const r = w.place(tool.type, s.x, s.y, s.dir);
-      if (typeof r === 'string') failed = r;
-      else placed++;
-    }
+    let placed = 0, failed = '', bridges = 0;
+    if (tool.type === 'belt') {
+      const steps = w.planBelt(p);
+      const r = w.placeBeltSteps(steps);
+      placed = r.ids.length;
+      failed = r.failed;
+      bridges = steps.filter((s) => s.kind === 'bridge' && r.ids.includes(w.entAt(s.x, s.y)?.id ?? -1)).length;
+    } else
+      for (const s of p) {
+        const existing = w.entAt(s.x, s.y);
+        if (tool.type === 'road' && existing?.type === 'road') continue;
+        const r = w.place(tool.type, s.x, s.y, s.dir);
+        if (typeof r === 'string') failed = r;
+        else placed++;
+      }
     if (placed) audio.play(tool.type === 'belt' ? 'belt' : 'place');
+    if (bridges) audio.play('upgrade');
     if (failed && !placed) {
       audio.play('error');
       this.ui.toast(failed, true);
@@ -340,20 +348,39 @@ export class Input {
     const def = BUILDINGS[tool.type];
     if (tool.type === 'belt' || tool.type === 'road') {
       const p = d && d.kind === 'path' ? this.path(d.sx, d.sy) : [{ x: h.x, y: h.y, dir: this.rot }];
-      let coinsNeeded = 0;
-      const marks = p.map((s) => {
-        const existing = w.entAt(s.x, s.y);
-        const reuse = (tool.type === 'belt' && existing?.type === 'belt') || (tool.type === 'road' && existing?.type === 'road');
-        const c = w.checkPlace(tool.type, s.x, s.y, s.dir, true);
-        if (!reuse && c.ok) coinsNeeded += def.cost.coins;
-        return { ...s, ok: c.ok || reuse, reason: c.reason };
-      });
+      let coinsNeeded = 0, bridges = 0;
+      const marks: { x: number; y: number; dir: number; ok: boolean; reason?: string; bridge?: boolean }[] = [];
+      if (tool.type === 'belt') {
+        for (const s of w.planBelt(p)) {
+          if (s.kind === 'bridge') {
+            bridges++;
+            coinsNeeded += def.cost.coins + BRIDGE_COST;
+            for (let i = 0; i < s.len!; i++) marks.push({ x: s.x + DX[s.dir] * i, y: s.y + DY[s.dir] * i, dir: s.dir, ok: true, bridge: true });
+            continue;
+          }
+          if (s.kind === 'blocked') {
+            marks.push({ ...s, ok: false });
+            continue;
+          }
+          const reuse = w.entAt(s.x, s.y)?.type === 'belt';
+          const c = w.checkPlace('belt', s.x, s.y, s.dir, true);
+          if (!reuse && c.ok) coinsNeeded += def.cost.coins;
+          marks.push({ ...s, ok: c.ok || reuse, reason: c.reason });
+        }
+      } else
+        for (const s of p) {
+          const reuse = w.entAt(s.x, s.y)?.type === 'road';
+          const c = w.checkPlace(tool.type, s.x, s.y, s.dir, true);
+          if (!reuse && c.ok) coinsNeeded += def.cost.coins;
+          marks.push({ ...s, ok: c.ok || reuse, reason: c.reason });
+        }
       this.scene.showBeltPath(marks, tool.type);
       const bad = marks.find((m) => !m.ok);
       const afford = w.coins >= coinsNeeded;
       let tip = `<div class="n">${def.name}${p.length > 1 ? ` ×${p.length}` : ''}</div><div class="c">${SVG.coin.replace('<svg', '<svg class="ico sm"')}${coinsNeeded}</div>`;
       if (!afford) tip += `<div class="bad">コインが足りません</div>`;
       if (bad) tip += `<div class="bad">${bad.reason}</div>`;
+      if (bridges) tip += `<div class="good">ベルトの橋を${bridges}か所架けます（各 +${BRIDGE_COST}コイン）</div>`;
       if (tool.type === 'belt') {
         if (p.length === 1) tip += `<div class="hint" style="margin-top:4px">ドラッグで連続して敷設・R で向きを回転</div>`;
         tip += this.beltHint(p);

@@ -1,7 +1,7 @@
 // HUD, build bar, inspector, modals, toasts and tooltips.
 
 import {
-  BUILDINGS, BUILD_MENU, BuildingDef, BuildingId, Category, Cost, HOUSE_CONSUME_INTERVAL, HOUSE_TIERS, ITEMS, ITEM_IDS,
+  BUILDINGS, BUILD_MENU, BuildingDef, BuildingId, Category, Cost, HOUSE_CONSUME_INTERVAL, HOUSE_TIERS, HOUSE_UPGRADE_TIME, ITEMS, ITEM_IDS,
   ItemId, LEVEL_SPEED, MILESTONES, RESEARCH, RESEARCH_IDS, ResearchId,
 } from '../sim/data';
 import { QUESTS, activeQuests } from '../sim/quests';
@@ -428,7 +428,7 @@ export class UI {
           <div class="kv"><span>道に面している</span>${ok(!!e.roadAdj)}</div>
           <div class="kv"><span>物資が満たされている</span>${ok(!!e.happy)}</div>
           <div class="kv"><span>近くの市場に ${items}</span>${ok(next.needs.every((n) => (e.supply![n] ?? 0) > 0 || w.coverageOf(e.id).some((m) => (w.entities.get(m)!.inv[n] ?? 0) > 0)))}</div>
-          <div class="bar" style="margin-top:6px"><i style="width:${Math.min(100, ((e.happyT ?? 0) / 12) * 100)}%"></i></div>`);
+          <div class="bar" style="margin-top:6px"><i style="width:${Math.min(100, ((e.happyT ?? 0) / HOUSE_UPGRADE_TIME) * 100)}%"></i></div>`);
       }
     } else if (d.kind === 'hall' || d.kind === 'storage') {
       const cap = d.storageCap!;

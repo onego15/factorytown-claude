@@ -2,6 +2,7 @@
 
 export const LEVEL_H = 0.5; // world units per terrain level
 export const BELT_Y = 0.13; // belt surface above ground
+export const BRIDGE_H = 0.62; // bridge deck height above a belt surface
 
 // 0 = east (+x), 1 = south (+y), 2 = west (-x), 3 = north (-y)
 export const DX = [1, 0, -1, 0];
@@ -29,12 +30,30 @@ export interface BeltGeom {
   shape: number; // 0 straight, 1 enters from left side, 2 enters from right side
   yIn: number; // world height at entry edge (belt surface)
   yOut: number; // world height at exit edge
+  len?: number; // tiles covered (bridges span several)
+}
+
+/** Height profile of a bridge: ramps up over the first tile, down over the last */
+export function bridgeLift(s: number, len: number) {
+  const sm = (v: number) => {
+    const c = Math.min(1, Math.max(0, v));
+    return c * c * (3 - 2 * c);
+  };
+  return Math.min(sm(s), sm(len - s)) * BRIDGE_H;
 }
 
 /** Point along a belt for progress t in [0,1] */
 export function beltPoint(b: BeltGeom, t: number, w: number, h: number, out: V3): V3 {
   const c = tileCenter(b.x, b.y, w, h);
   const fx = DX[b.dir], fz = DY[b.dir];
+  const len = b.len ?? 1;
+  if (len > 1) {
+    const s = t * len;
+    out.x = c.x + fx * (s - 0.5);
+    out.z = c.z + fz * (s - 0.5);
+    out.y = b.yIn + bridgeLift(s, len);
+    return out;
+  }
   if (b.shape === 0) {
     out.x = c.x + fx * (t - 0.5);
     out.z = c.z + fz * (t - 0.5);

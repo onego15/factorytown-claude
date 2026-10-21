@@ -222,7 +222,7 @@ export class EntityView {
       }
     }
     for (const e of w.entities.values()) {
-      if (e.type === 'belt' || e.type === 'road') continue;
+      if (e.type === 'belt' || e.type === 'road' || e.type === 'bridgeEnd') continue;
       if (this.views.has(e.id)) continue;
       const v = this.create(e);
       if (!newIds.has(e.id)) v.born = -10; // pre-existing (loaded) entities appear instantly

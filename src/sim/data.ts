@@ -40,6 +40,7 @@ export interface Cost {
 
 export type BuildingId =
   | 'belt'
+  | 'bridgeEnd'
   | 'road'
   | 'splitter'
   | 'hall'
@@ -57,7 +58,7 @@ export type BuildingId =
   | 'smelter'
   | 'workshop';
 
-export type BuildingKind = 'belt' | 'road' | 'splitter' | 'hall' | 'house' | 'storage' | 'trade' | 'gatherer' | 'crafter';
+export type BuildingKind = 'belt' | 'bridgeEnd' | 'road' | 'splitter' | 'hall' | 'house' | 'storage' | 'trade' | 'gatherer' | 'crafter';
 
 export type Category = 'logistics' | 'resource' | 'industry' | 'town';
 
@@ -93,8 +94,12 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     id: 'belt', name: 'ベルトコンベア', desc: '資源を運ぶ。ドラッグで連続して敷設できます。',
     kind: 'belt', category: 'logistics', size: [1, 1], cost: { coins: 1 }, workers: 0, hotkey: 'B',
   },
+  bridgeEnd: {
+    id: 'bridgeEnd', name: 'ベルトの橋', desc: 'ベルトや道をまたいで資源を運ぶ橋。ベルトをドラッグして他のベルトや道を横切ると自動で架かります。',
+    kind: 'bridgeEnd', category: 'logistics', size: [1, 1], cost: { coins: 0 }, workers: 0,
+  },
   splitter: {
-    id: 'splitter', name: '分配器', desc: '流れてきた資源を、外向きのベルトへ順番に振り分けます。',
+    id: 'splitter', name: '分配器', desc: '流れてきた資源を外向きのベルトへ順番に振り分けます。行き先が使えない資源は送りません。',
     kind: 'splitter', category: 'logistics', size: [1, 1], cost: { coins: 10 }, workers: 0, unlock: 'logistics',
   },
   road: {
@@ -107,7 +112,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   house: {
     id: 'house', name: '住宅', desc: '住民が暮らす家。物資が届くと人口と税収が増え、条件を満たすと発展します。',
-    kind: 'house', category: 'town', size: [1, 1], cost: { coins: 15, items: { log: 4 } }, workers: 0, hotkey: 'H',
+    kind: 'house', category: 'town', size: [1, 1], cost: { coins: 20, items: { log: 5 } }, workers: 0, hotkey: 'H',
   },
   market: {
     id: 'market', name: '市場', desc: 'ベルトで届いた物資を貯え、周囲の家へ配ります。',
@@ -210,43 +215,43 @@ export interface ResearchDef {
 export const RESEARCH: Record<ResearchId, ResearchDef> = {
   logistics: {
     id: 'logistics', name: '物流 I', desc: '分配器を解放。ひとつのラインを複数の工場へ分けられます。',
-    cost: { coins: 40, items: { plank: 10 } }, prereq: [], time: 8, col: 0, row: 0,
+    cost: { coins: 40, items: { plank: 10 } }, prereq: [], time: 15, col: 0, row: 0,
   },
   food: {
     id: 'food', name: '食料加工', desc: '風車小屋とパン工房を解放。小麦からパンをつくれます。',
-    cost: { coins: 60, items: { plank: 15 } }, prereq: [], time: 10, col: 0, row: 1,
+    cost: { coins: 60, items: { plank: 15 } }, prereq: [], time: 20, col: 0, row: 1,
   },
   stonework: {
     id: 'stonework', name: '石工術', desc: '採石場と倉庫を解放。',
-    cost: { coins: 80, items: { plank: 20 } }, prereq: [], time: 10, col: 0, row: 2,
+    cost: { coins: 80, items: { plank: 20 } }, prereq: [], time: 20, col: 0, row: 2,
   },
   housing2: {
     id: 'housing2', name: '民家', desc: '住宅が「民家」へ発展できるようになります（丸太＋パン、道に面すること）。',
-    cost: { coins: 120, items: { plank: 20, bread: 10 } }, prereq: ['food'], time: 15, col: 1, row: 1,
+    cost: { coins: 150, items: { plank: 25, bread: 20 } }, prereq: ['food'], time: 30, col: 1, row: 1,
   },
   improve1: {
     id: 'improve1', name: '建物改良 I', desc: '生産設備を Lv2 へ改良可能に（速度 ×1.6）。',
-    cost: { coins: 150, items: { plank: 20, stone: 15 } }, prereq: ['stonework'], time: 15, col: 1, row: 2,
+    cost: { coins: 150, items: { plank: 20, stone: 15 } }, prereq: ['stonework'], time: 30, col: 1, row: 2,
   },
   metallurgy: {
     id: 'metallurgy', name: '採掘と製錬', desc: '鉄鉱山と製錬炉を解放。',
-    cost: { coins: 200, items: { stone: 30, plank: 20 } }, prereq: ['stonework'], time: 18, col: 1, row: 3,
+    cost: { coins: 200, items: { stone: 30, plank: 20 } }, prereq: ['stonework'], time: 35, col: 1, row: 3,
   },
   fastbelt: {
     id: 'fastbelt', name: '高速ベルト', desc: 'すべてのベルトコンベアの速度が ×1.75 になります。',
-    cost: { coins: 150, items: { iron: 10 } }, prereq: ['metallurgy', 'logistics'], time: 15, col: 2, row: 0,
+    cost: { coins: 150, items: { iron: 10 } }, prereq: ['metallurgy', 'logistics'], time: 30, col: 2, row: 0,
   },
   tools: {
     id: 'tools', name: '道具づくり', desc: '道具工房を解放。',
-    cost: { coins: 250, items: { iron: 15, plank: 20 } }, prereq: ['metallurgy'], time: 20, col: 2, row: 3,
+    cost: { coins: 250, items: { iron: 15, plank: 20 } }, prereq: ['metallurgy'], time: 40, col: 2, row: 3,
   },
   housing3: {
     id: 'housing3', name: '邸宅', desc: '民家が「邸宅」へ発展できるようになります（パン＋板材＋道具）。',
-    cost: { coins: 400, items: { tools: 10, bread: 30, stone: 30 } }, prereq: ['housing2', 'tools'], time: 25, col: 3, row: 1,
+    cost: { coins: 400, items: { tools: 10, bread: 30, stone: 30 } }, prereq: ['housing2', 'tools'], time: 50, col: 3, row: 1,
   },
   improve2: {
     id: 'improve2', name: '建物改良 II', desc: '生産設備を Lv3 へ改良可能に（速度 ×2.2）。',
-    cost: { coins: 300, items: { iron: 20, tools: 8 } }, prereq: ['improve1', 'tools'], time: 25, col: 3, row: 2,
+    cost: { coins: 300, items: { iron: 20, tools: 8 } }, prereq: ['improve1', 'tools'], time: 50, col: 3, row: 2,
   },
 };
 
@@ -262,15 +267,15 @@ export interface HouseTierDef {
 }
 
 export const HOUSE_TIERS: HouseTierDef[] = [
-  { name: '小屋', needs: ['log'], popHappy: 3, popUnhappy: 1, tax: 0.3 },
-  { name: '民家', needs: ['log', 'bread'], popHappy: 6, popUnhappy: 2, tax: 0.75, requires: 'housing2' },
-  { name: '邸宅', needs: ['bread', 'plank', 'tools'], popHappy: 10, popUnhappy: 3, tax: 1.6, requires: 'housing3' },
+  { name: '小屋', needs: ['log'], popHappy: 3, popUnhappy: 1, tax: 0.1 },
+  { name: '民家', needs: ['log', 'bread'], popHappy: 6, popUnhappy: 2, tax: 0.25, requires: 'housing2' },
+  { name: '邸宅', needs: ['bread', 'plank', 'tools'], popHappy: 10, popUnhappy: 3, tax: 0.55, requires: 'housing3' },
 ];
 
 /** seconds between consuming one unit of each need */
 export const HOUSE_CONSUME_INTERVAL = 24;
 /** seconds of continuous happiness before upgrading */
-export const HOUSE_UPGRADE_TIME = 12;
+export const HOUSE_UPGRADE_TIME = 25;
 /** seconds of continuous unhappiness before downgrading */
 export const HOUSE_DOWNGRADE_TIME = 60;
 
@@ -285,11 +290,14 @@ export interface Milestone {
 
 export const MILESTONES: Milestone[] = [
   { pop: 0, name: '開拓地', reward: 0, desc: '' },
-  { pop: 20, name: '村', reward: 150, desc: '町役場に時計塔が建ちました。' },
-  { pop: 50, name: '町', reward: 300, desc: '夜の街路に灯りがともるようになりました。' },
-  { pop: 100, name: '都市', reward: 600, desc: 'ギアヴェイルは立派な都市になりました！' },
+  { pop: 30, name: '村', reward: 150, desc: '町役場に時計塔が建ちました。' },
+  { pop: 75, name: '町', reward: 300, desc: '夜の街路に灯りがともるようになりました。' },
+  { pop: 150, name: '都市', reward: 600, desc: 'ギアヴェイルは立派な都市になりました！' },
 ];
 
 export const BELT_BASE_SPEED = 1.4; // tiles per second
 export const BELT_SPACING = 0.25;
+/** extra coins for a belt bridge, and its maximum length in tiles (entry + crossed tiles + exit) */
+export const BRIDGE_COST = 8;
+export const BRIDGE_MAX_LEN = 6;
 export const TICK = 0.1; // simulation step (seconds)
